@@ -1,118 +1,121 @@
-# MeshDrop
+# MeshDrop — Backend & Distributed System Documentation
 
-> **A high-performance, open-source distributed file sharing platform engineered for scale.**
+> **A high-performance, open-source distributed file-sharing platform engineered for scale.**
 
 ---
 
 ## Table of Contents
 
-- [Introduction](#-introduction)
-
-- [System Architecture](#-system-architecture)
-
-  - [Microservices & Modularity](#microservices--modularity)
-
-  - [The Cluster Protocol](#the-cluster-protocol)
-
-  - [Native Performance Layer](#native-performance-layer)
-
-- [Tech Stack](#-tech-stack)
-
-- [Getting Started](#-getting-started)
-
-  - [Prerequisites](#prerequisites)
-
-  - [Installation](#installation)
-
-- [Configuration](#-configuration)
-
-- [Running the Application](#-running-the-application)
-
-- [Contributing](#-contributing)
+| Section | Coverage |
+|---|---|
+| Introduction | Project purpose and architecture philosophy |
+| System Architecture | Backend services and infrastructure |
+| Cluster Protocol | Leader election, routing, state, and scaling |
+| Native Performance Layer | C++ N-API and SIMD optimizations |
+| Tech Stack | Backend technologies and responsibilities |
+| Getting Started | Prerequisites and backend installation |
+| Configuration | Environment variables and operational limits |
+| Clustering Guide | Single-node and multi-node deployment |
+| Running the Application | Development and production commands |
+| Docker Deployment | Containerized deployment and scaling |
+| Contributing | Bug reporting and feature requests |
 
 ---
 
 ## Introduction
 
-MeshDrop is not just a file transfer tool; it is a sophisticated distributed system designed to handle high-throughput data transfer across a clustered environment. Built with a "performance-first" mindset, it leverages a microservices-inspired architecture to ensure that no single point of failure exists.
+MeshDrop is not just a file transfer tool; it is a sophisticated distributed system designed to handle high-throughput data transfer across a clustered environment. Built with a **performance-first** mindset, it uses a microservices-inspired architecture so backend responsibilities remain separated and independently scalable.
 
-Whether you are running a single instance or a fleet of nodes across different continents, MeshDrop's intelligent routing layer ensures your data gets where it needs to go—instantly.
-
-
+Whether running a single instance or a fleet of nodes across different regions, MeshDrop's routing layer is designed to move data between connected users through the appropriate backend node.
 
 ---
 
 ## System Architecture
 
-MeshDrop moves away from the traditional monolithic server model. Instead, it operates as a collection of intelligent **Nodes** that form a cooperative cluster. **These nodes are fully decoupled and can run on separate physical machines, different cloud regions, or distinct containers, creating a truly distributed network.**
+MeshDrop moves away from the traditional monolithic server model. Instead, it operates as a collection of intelligent **nodes** that form a cooperative cluster.
+
+These nodes are fully decoupled and can run on separate physical machines, different cloud regions, or distinct containers, creating a distributed backend.
 
 ### Microservices & Modularity
 
-The backend is strictly decoupled into autonomous services, each responsible for a specific domain. This modularity allows for independent scaling and maintenance.
+The backend is divided into autonomous services, with each service responsible for a specific domain.
 
-**Application Services:**
+| Backend Service | Primary Responsibility |
+|---|---|
+| **Cluster Service** | Leader election, node discovery, and inter-node routing |
+| **Session Service** | User state, authentication, and connection persistence across the cluster |
+| **Node Service** | Worker-node lifecycle, health checks, and self-healing routines |
+| **Stats Service** | Real-time metrics aggregation and system-health visibility |
 
-* **Cluster Service**: The brain of the operation. It manages leader election, node discovery, and inter-node routing.
+### Infrastructure Services
 
-* **Session Service**: Handles user state, authentication, and connection persistence across the cluster.
+| Infrastructure | Role |
+|---|---|
+| **PostgreSQL** | Dedicated persistent storage and data integrity |
+| **Redis** | High-performance caching, Pub/Sub messaging, session lookup, and cluster coordination |
 
-* **Node Service**: Manages the lifecycle of individual worker nodes, performing health checks and self-healing routines.
+---
 
-* **Stats Service**: Aggregates real-time metrics from all nodes to provide a holistic view of system health.
+## Cluster Protocol
 
-**Infrastructure Services:**
+MeshDrop uses a custom event-driven backend backbone built around **Redis Pub/Sub**.
 
-* **PostgreSQL Database**: Operates as a completely separate, dedicated service for persistent data storage, ensuring data integrity independent of application nodes.
+| Mechanism | Description |
+|---|---|
+| **Leader Election** | Nodes automatically elect a Master node to handle routing decisions and cluster-wide synchronization |
+| **Smart Routing** | Data-transfer traffic is routed internally between source and target nodes |
+| **State Consistency** | Session state is persisted in PostgreSQL and cached in Redis for fast lookups |
+| **Dynamic Scaling** | New backend nodes can be added horizontally and discovered through Redis |
 
-* **Redis**: Runs as a standalone high-performance service handling caching, Pub/Sub messaging, and cluster coordination.
+### Leader Election
 
-### The Cluster Protocol
+Each backend node attempts to acquire a master lock in Redis using `SET NX` with a **15-second TTL**.
 
-How do nodes talk to each other? We built a custom event-driven backbone using **Redis Pub/Sub**.
+The node holding the lock acts as the **Master** and handles routing decisions. If the Master goes down, another node can take over automatically.
 
-1. **Leader Election**: Nodes automatically elect a "Master" node to handle complex routing decisions and cluster-wide synchronization.
+### Cross-Node Routing
 
-2. **Smart Routing**: If User A (on Node 1) sends a file to User B (on Node 2), the system identifies the target node and routes the data stream internally. The users never know they are on different servers.
+When a user connected to **Node A** sends a file to a user connected to **Node B**, MeshDrop identifies the destination node and routes the transfer signal internally through the cluster.
 
-3. **State Consistency**: All session states are persisted in PostgreSQL but cached in Redis for millisecond-level access speeds.
+### Session State
 
-4. **Dynamic Scaling**: The system supports hot-swappable nodes. As you spin up new Docker containers, the frontend automatically discovers them via Redis, enabling seamless horizontal scaling with zero downtime.
+Sessions are persisted in PostgreSQL and cached in Redis.
 
-### Native Performance Layer
+The Redis session store maps:
 
-JavaScript is fast, but C++ is faster. For CPU-intensive tasks, we bypass the Node.js event loop and drop down to bare metal.
+```text
+clientId -> { nodeId, socketId }
+```
 
-* **`net_io` Addon**: A custom C++ N-API module built specifically for MeshDrop.
+This allows the cluster to identify where a connected client is located and route work directly to the corresponding worker node.
 
-* **SIMD Checksums**: We utilize AVX/SSE instructions to calculate file integrity hashes 400% faster than standard crypto libraries.
+---
 
-* **XOR Cipher**: Real-time stream obfuscation with zero latency overhead.
+## Native Performance Layer
+
+JavaScript handles the application logic, while C++ is used for performance-critical operations.
+
+| Component | Purpose |
+|---|---|
+| **`net_io` Addon** | Custom C++ N-API module built specifically for MeshDrop |
+| **SIMD Checksums** | Uses AVX/SSE instructions for accelerated file-integrity hashing |
+| **XOR Cipher** | Real-time stream obfuscation with low overhead |
+
+For CPU-intensive operations, the native layer reduces dependence on the Node.js event loop and provides a lower-level execution path.
 
 ---
 
 ## Tech Stack
 
-| Component           | Technology   | Description                                        |
-
-| ------------------- | ------------ | -------------------------------------------------- |
-
-| **Frontend**  | React + Vite | Ultra-fast UI rendering and bundling.              |
-
-| **Styling**   | Tailwind CSS | Utility-first CSS for consistent design.           |
-
-| **Runtime**   | Node.js      | Asynchronous event-driven JavaScript runtime.      |
-
-| **Language**  | TypeScript   | Strict typing for robust, error-free code.         |
-
-| **Transport** | Socket.IO    | Real-time bidirectional event-based communication. |
-
-| **Database**  | PostgreSQL   | Relational data integrity for sessions and nodes.  |
-
-| **ORM**       | Prisma       | Type-safe database access and schema management.   |
-
-| **Cache/Msg** | Redis        | High-performance caching and Pub/Sub messaging.    |
-
-| **Native**    | C++ (N-API)  | Low-level optimization for critical paths.         |
+| Layer | Technology | Purpose |
+|---|---|---|
+| **Runtime** | Node.js | Asynchronous event-driven backend runtime |
+| **Language** | TypeScript | Strict typing and maintainable backend code |
+| **Transport** | Socket.IO | Real-time bidirectional event-based communication |
+| **Database** | PostgreSQL | Persistent relational data storage |
+| **ORM** | Prisma | Type-safe database access and schema management |
+| **Cache / Messaging** | Redis | Caching, Pub/Sub messaging, session lookups, and cluster coordination |
+| **Native Layer** | C++ (N-API) | Low-level optimization for critical paths |
 
 ---
 
@@ -120,285 +123,178 @@ JavaScript is fast, but C++ is faster. For CPU-intensive tasks, we bypass the No
 
 ### Prerequisites
 
-Ensure your environment is ready for high-performance computing.
-
-* **Node.js**: v18.0.0 or higher
-
-* **PostgreSQL**: v14+
-
-* **Redis**: v6+ (Essential for Cluster Mode)
-
-* **Build Tools**: Python 3 & C++ compiler (Visual Studio Build Tools on Windows, `build-essential` on Linux) for compiling the native addon.
+| Requirement | Version / Requirement | Why It Is Needed |
+|---|---|---|
+| **Node.js** | v18.0.0+ | Backend runtime |
+| **PostgreSQL** | v14+ | Persistent application storage |
+| **Redis** | v6+ | Required for caching and cluster mode |
+| **Python 3** | Installed | Native addon build tooling |
+| **C++ Compiler** | Visual Studio Build Tools on Windows / `build-essential` on Linux | Compiles the native addon |
 
 ### Installation
 
-1. **Clone the Repository**
+| Step | Action | Command |
+|---:|---|---|
+| 1 | Clone repository | `git clone https://github.com/MohamedAYassin/MeshDrop.git` |
+| 2 | Enter project directory | `cd MeshDrop` |
+| 3 | Enter backend | `cd backend` |
+| 4 | Install dependencies | `npm install` |
+| 5 | Create environment file | `cp .env.example .env` |
+| 6 | Generate Prisma client | `npm run prisma:generate` |
+| 7 | Push Prisma schema | `npm run prisma:push` |
 
-   ```bash
-
-   git clone https://github.com/MohamedAYassin/MeshDrop.git
-
-   cd MeshDrop
-
-   ```
-
-2. **Backend Setup**
-
-   ```bash
-
-   cd backend
-
-   npm install
-
-   # Configure Environment
-
-   cp .env.example .env
-
-   # EDIT .env with your DB/Redis credentials!
-
-   # Initialize Database
-
-   npm run prisma:generate
-
-   npm run prisma:push
-
-   ```
-
-3. **Frontend Setup**
-
-   ```bash
-
-   cd frontend
-
-   npm install
-
-   cp .env.example .env
-
-   ```
+> **Configuration note:** Update `backend/.env` with the PostgreSQL and Redis connection details before starting the server.
 
 ---
 
 ## Configuration
 
-MeshDrop is designed to be flexible. Control every aspect of the system via environment variables.
+MeshDrop is configured through environment variables.
 
 ### Backend Configuration (`backend/.env`)
 
 #### Database
 
-| Variable         | Default              | Description                       |
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | `postgresql://...` | PostgreSQL connection string |
 
-| ---------------- | -------------------- | --------------------------------- |
+#### Server & Node
 
-| `DATABASE_URL` | `postgresql://...` | Connection string for PostgreSQL. |
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `5000` | Port the backend server listens on |
+| `NODE_ENV` | `development` | Runtime environment |
+| `NODE_HOSTNAME` | `localhost` | Hostname/IP used for cluster discovery |
+| `NODE_PORT` | `5000` | Public port for the backend node |
 
-#### Server & Cluster
+#### Redis — Caching & Pub/Sub
 
-| Variable          | Default         | Description                                                  |
+| Variable | Default | Description |
+|---|---:|---|
+| `REDIS_HOST` | `localhost` | Redis server hostname |
+| `REDIS_PORT` | `6379` | Redis server port |
+| `REDIS_PASSWORD` | `-` | Redis password; empty when authentication is not configured |
+| `REDIS_DB` | `0` | Redis database index |
+| `REDIS_MAX_RETRIES` | `3` | Maximum connection retries |
+| `REDIS_RETRY_DELAY` | `100` | Delay between retries in milliseconds |
+| `REDIS_CONNECT_TIMEOUT` | `10000` | Connection timeout in milliseconds |
 
-| ----------------- | --------------- | ------------------------------------------------------------ |
+#### Redis TTL — Time To Live
 
-| `PORT`          | `5000`        | The port the server listens on.                              |
-
-| `NODE_ENV`      | `development` | Environment mode (`development` or `production`).        |
-
-| `NODE_HOSTNAME` | `localhost`   | Hostname for this specific node (used in cluster discovery). |
-
-| `NODE_PORT`     | `5000`        | Port for this specific node.                                 |
-
-#### Redis (Caching & Pub/Sub)
-
-| Variable                  | Default       | Description                           |
-
-| ------------------------- | ------------- | ------------------------------------- |
-
-| `REDIS_HOST`            | `localhost` | Redis server hostname.                |
-
-| `REDIS_PORT`            | `6379`      | Redis server port.                    |
-
-| `REDIS_PASSWORD`        | -             | Redis password (leave empty if none). |
-
-| `REDIS_DB`              | `0`         | Redis database index.                 |
-
-| `REDIS_MAX_RETRIES`     | `3`         | Max connection retries.               |
-
-| `REDIS_RETRY_DELAY`     | `100`       | Delay between retries (ms).           |
-
-| `REDIS_CONNECT_TIMEOUT` | `10000`     | Connection timeout (ms).              |
-
-#### Redis TTL (Time-To-Live)
-
-| Variable                  | Default   | Description                                |
-
-| ------------------------- | --------- | ------------------------------------------ |
-
-| `TTL_CLIENT_SESSION`    | `3600`  | Session duration in seconds (1 hour).      |
-
-| `TTL_SHARE_SESSION`     | `86400` | Share link duration in seconds (24 hours). |
-
-| `TTL_UPLOAD_STATE`      | `7200`  | Upload state retention (2 hours).          |
-
-| `TTL_RATE_LIMIT_WINDOW` | `60`    | Rate limit window (1 minute).              |
-
-| `TTL_HEARTBEAT`         | `300`   | Node heartbeat expiration (5 minutes).     |
+| Variable | Default | Meaning |
+|---|---:|---|
+| `TTL_CLIENT_SESSION` | `3600` | Client-session lifetime in seconds |
+| `TTL_SHARE_SESSION` | `86400` | Share-link lifetime in seconds |
+| `TTL_UPLOAD_STATE` | `7200` | Upload-state retention in seconds |
+| `TTL_RATE_LIMIT_WINDOW` | `60` | Rate-limit window in seconds |
+| `TTL_HEARTBEAT` | `300` | Node-heartbeat expiration in seconds |
 
 #### Security & Rate Limiting
 
-| Variable                                     | Default                   | Description                       |
-
-| -------------------------------------------- | ------------------------- | --------------------------------- |
-
-| `CORS_ORIGIN`                              | `http://localhost:5173` | Allowed frontend origin.          |
-
-| `RATE_LIMIT_UPLOADS_PER_MINUTE`            | `100`                   | Max uploads per user/min.         |
-
-| `RATE_LIMIT_DOWNLOADS_PER_MINUTE`          | `100`                   | Max downloads per user/min.       |
-
-| `RATE_LIMIT_WEBSOCKET_MESSAGES_PER_MINUTE` | `1000`                  | Max socket messages per user/min. |
+| Variable | Default | Description |
+|---|---:|---|
+| `CORS_ORIGIN` | `http://localhost:5173` | Allowed frontend origin |
+| `RATE_LIMIT_UPLOADS_PER_MINUTE` | `100` | Maximum uploads per user per minute |
+| `RATE_LIMIT_DOWNLOADS_PER_MINUTE` | `100` | Maximum downloads per user per minute |
+| `RATE_LIMIT_WEBSOCKET_MESSAGES_PER_MINUTE` | `1000` | Maximum WebSocket messages per user per minute |
 
 #### File Transfer
 
-| Variable                     | Default        | Description                          |
-
-| ---------------------------- | -------------- | ------------------------------------ |
-
-| `MAX_FILE_SIZE`            | `1073741824` | Max file size in bytes (1GB).        |
-
-| `CHUNK_SIZE`               | `16384`      | Size of each file chunk (16KB).      |
-
-| `MAX_CONCURRENT_UPLOADS`   | `10`         | Max simultaneous uploads per node.   |
-
-| `MAX_CONCURRENT_DOWNLOADS` | `10`         | Max simultaneous downloads per node. |
-
-| `MAX_CONCURRENT_TRANSFERS` | `5`          | Max active transfers per user.       |
-
-| `ACK_TIMEOUT_MS`           | `10000`      | Timeout for chunk acknowledgement.   |
-
-| `MAX_RETRIES`              | `3`          | Max retries for failed chunks.       |
+| Variable | Default | Description |
+|---|---:|---|
+| `MAX_FILE_SIZE` | `1073741824` | Maximum file size in bytes (1 GB) |
+| `CHUNK_SIZE` | `16384` | Size of each file chunk (16 KB) |
+| `MAX_CONCURRENT_UPLOADS` | `10` | Maximum simultaneous uploads per node |
+| `MAX_CONCURRENT_DOWNLOADS` | `10` | Maximum simultaneous downloads per node |
+| `MAX_CONCURRENT_TRANSFERS` | `5` | Maximum active transfers per user |
+| `ACK_TIMEOUT_MS` | `10000` | Timeout for chunk acknowledgement in milliseconds |
+| `MAX_RETRIES` | `3` | Maximum retries for failed chunks |
 
 #### Performance & Features
 
-| Variable               | Default  | Description                               |
-
-| ---------------------- | -------- | ----------------------------------------- |
-
-| `USE_NATIVE_ADDON`   | `true` | Enable C++ SIMD optimizations.            |
-
-| `USE_REDIS`          | `true` | Enable Redis (Required for Cluster).      |
-
-| `USE_CLUSTER`        | `true` | Enable distributed cluster mode.          |
-
-| `ENABLE_COMPRESSION` | `true` | Enable WebSocket per-message compression. |
-
-| `ENABLE_METRICS`     | `true` | Enable Prometheus-style metrics.          |
-
----
+| Variable | Default | Description |
+|---|---|---|
+| `USE_NATIVE_ADDON` | `true` | Enable C++ SIMD optimizations |
+| `USE_REDIS` | `true` | Enable Redis; required for cluster mode |
+| `USE_CLUSTER` | `true` | Enable distributed cluster mode |
+| `ENABLE_COMPRESSION` | `true` | Enable WebSocket per-message compression |
+| `ENABLE_METRICS` | `true` | Enable Prometheus-style metrics |
 
 ---
 
 ## Clustering Guide
 
-MeshDrop is designed to run as a **distributed cluster** of backend nodes behind multiple frontend instances. Nodes communicate via **Redis Pub/Sub**, with automatic leader election and cross-node message routing.
+MeshDrop is designed to run as a distributed cluster of backend nodes. Nodes communicate through **Redis Pub/Sub**, with automatic leader election and cross-node routing.
 
 ### How Clustering Works
 
-1. **Leader Election**: Each backend node attempts to acquire a master lock in Redis using `SET NX` with a 15-second TTL. The node that holds the lock acts as the **Master**, handling routing decisions. If the Master goes down, another node automatically takes over within 5 seconds.
+| Step | Mechanism | Backend Behavior |
+|---:|---|---|
+| 1 | **Leader Election** | A node acquires the Redis master lock using `SET NX`; the lock has a 15-second TTL |
+| 2 | **Cross-Node Routing** | Redis Pub/Sub carries routing signals between backend nodes |
+| 3 | **Session State** | PostgreSQL stores persistent state while Redis provides fast session lookups |
+| 4 | **Node Distribution** | Each node handles its own connected clients while cluster services coordinate shared state |
 
-2. **Cross-Node Routing**: When a user on Node A sends a file to a user on Node B, the system routes the signal via Redis Pub/Sub — the users never know they're on different servers.
+### Single Node Setup
 
-3. **Session State**: All sessions are persisted in PostgreSQL and cached in Redis for fast lookups. The Redis session store maps `clientId -> { nodeId, socketId }`, enabling direct worker-to-worker routing.
-
-4. **Frontend Load Balancing**: The frontend randomly picks from a list of backend nodes (`VITE_CLUSTER_NODES`) for initial connection. Each node handles its own connected clients.
-
-### Single Node Setup (Default)
-
-By default, MeshDrop runs in standalone mode (single node, no clustering). Redis is still used for caching and session storage but not for Pub/Sub.
+| Setting | Behavior |
+|---|---|
+| **Deployment** | One backend node |
+| **Cluster mode** | Disabled |
+| **Redis** | Still available for caching and session storage |
+| **Pub/Sub routing** | Not required |
 
 ### Multi-Node Cluster Setup
 
-#### Option A: Docker Compose (Easiest)
+#### Option A — Docker Compose
 
-1. **Set the backend replica count**:
+| Step | Command / Configuration | Result |
+|---:|---|---|
+| 1 | `docker-compose up -d --scale backend=3` | Starts three backend replicas |
+| 2 | Shared PostgreSQL + Redis | All replicas use common persistent and coordination services |
+| 3 | Docker service networking | Replicas can communicate through the internal Docker network |
 
-   ```bash
+With Docker Compose scaling, replicas can use the same internal backend port while Docker networking distributes connections across the service.
 
-   docker-compose up -d --scale backend=3
+#### Option B — Manual Setup (Bare Metal / VMs)
 
-   ```
+Each backend node requires its own environment configuration.
 
-   This starts 3 backend nodes plus PostgreSQL, Redis, and the frontend. Each backend registers itself as a separate node in the cluster.
+| Setting | Node 1 | Node 2 |
+|---|---|---|
+| `PORT` | `5000` | `5001` |
+| `NODE_HOSTNAME` | `192.168.1.10` | `192.168.1.11` |
+| `NODE_PORT` | `5000` | `5001` |
+| `USE_CLUSTER` | `true` | `true` |
+| `USE_REDIS` | `true` | `true` |
+| `REDIS_HOST` | `192.168.1.10` | `192.168.1.10` |
 
-2. **Update the frontend config** to list all backend nodes (edit `docker-compose.yml` or pass build args):
+> **Important:** All backend nodes must point to the **same Redis and PostgreSQL instances** because these services provide shared coordination and persistent state.
 
-   ```yaml
+#### Option C — Hybrid
 
-   frontend:
+Docker-based and native backend nodes can run together as long as they share the same Redis instance and are connected to the same network.
 
-     build:
+### Cluster Environment Variables
 
-       args:
+| Variable | Default | Purpose |
+|---|---|---|
+| `USE_CLUSTER` | `true` | Enables distributed cluster mode |
+| `USE_REDIS` | `true` | Enables Redis for Pub/Sub, session cache, and leader election |
+| `NODE_HOSTNAME` | `localhost` | Reachable hostname/IP of the node |
+| `NODE_PORT` | `5000` | Public port of the node |
 
-         - VITE_USE_CLUSTER=true
+When `USE_CLUSTER=false`, the node runs in standalone mode and acts as Master without Redis Pub/Sub routing, while Redis can still be used for caching when `USE_REDIS=true`.
 
-         - VITE_CLUSTER_NODES=http://backend:5000,http://backend:5001,http://backend:5002
+### Cluster Verification
 
-   ```
-
-   With Docker Compose scaling, all replicas use port 5000 internally, so `http://backend:5000` is sufficient — Docker's internal DNS load-balances across replicas.
-
-#### Option B: Manual Setup (Bare Metal / VMs)
-
-Each backend node needs its own environment configuration.
-
-**Node 1** (`terminal 1`):**
-
-   ```bash
-
-   cd backend
-
-   export PORT=5000
-
-   export NODE_HOSTNAME=192.168.1.10   # This node's reachable IP
-
-   export NODE_PORT=5000
-
-   export USE_CLUSTER=true
-
-   export USE_REDIS=true
-
-   export REDIS_HOST=192.168.1.10      # Shared Redis instance
-
-   npm run dev
-
-   ```
-
-**Node 2** (`terminal 2` or another machine):
-
-   ```bash
-
-   cd backend
-
-   export PORT=5001
-
-   export NODE_HOSTNAME=192.168.1.11   # This node's reachable IP
-
-   export NODE_PORT=5001
-
-   export USE_CLUSTER=true
-
-   export USE_REDIS=true
-
-   export REDIS_HOST=192.168.1.10      # Same shared Redis instance
-
-   npm run dev
-
-   ```
-
-**Important**: All nodes must point to the **same Redis and PostgreSQL instances** — they share state through these services.
-
-#### Option C: Hybrid (Docker Nodes + Native Nodes)
-
-You can run some nodes in Docker and some natively, as long as they all connect to the same Redis instance and are on the same network.
+| Check | Expected Result |
+|---|---|
+| **Cluster mode** | Cluster mode is reported as enabled |
+| **Node visibility** | Active and total node counts are available |
+| **Master failover** | Another node can take over when the current Master goes down |
+| **Node routing** | Requests can be routed between backend nodes |
 
 ---
 
@@ -406,90 +302,90 @@ You can run some nodes in Docker and some natively, as long as they all connect 
 
 ### Development Mode
 
-Run the backend in development mode with hot-reloading enabled.
+Run the backend with hot reloading:
+
+```bash
+cd backend
+npm run dev
+```
 
 ### Production Build
 
-Compile the TypeScript code and build the C++ native addons for maximum performance.
+Build the TypeScript backend, prepare the native addon, and start the server:
 
 ```bash
-
-# Build Backend (includes C++ compilation)
-
 cd backend
-
 npm run build
-
 npm run copy-native
-
 npm start
+```
+
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Start backend development server |
+| `npm run build` | Build the production backend |
+| `npm run copy-native` | Copy/build native addon assets |
+| `npm start` | Start production backend |
 
 ---
 
 ## Docker Deployment
 
-MeshDrop is fully containerized and ready for production deployment using Docker Compose.
+MeshDrop is containerized and can be deployed with Docker Compose.
 
 ### Prerequisites
 
-* **Docker** and **Docker Compose** installed.
+| Requirement | Purpose |
+|---|---|
+| **Docker** | Container runtime |
+| **Docker Compose** | Multi-service orchestration |
 
-### Running with Docker
+### Build & Start
 
-1. **Build and Start Services**
+```bash
+docker-compose up --build
+```
 
-   ```bash
+| Service | Default Port / Address |
+|---|---|
+| **Backend** | `http://localhost:5000` |
+| **PostgreSQL** | `5432` |
+| **Redis** | `6379` |
 
-   docker-compose up --build
+### Scale Backend Nodes
 
-   ```
+```bash
+docker-compose up -d --scale backend=3
+```
 
-   This will start:
-
-   * **Frontend**: `http://localhost`
-
-   * **Backend**: `http://localhost:5000`
-
-   * **PostgreSQL**: Port 5432 (Separate Service)
-
-   * **Redis**: Port 6379 (Separate Service)
-
-2. **Scale Up (Hot Swapping)**
-
-   To demonstrate dynamic scaling, you can spin up multiple backend nodes:
-
-   ```bash
-
-   docker-compose up -d --scale backend=3
-
-   ```
-
-   The frontend automatically discovers the new nodes via Redis.
+| Deployment Action | Effect |
+|---|---|
+| Start one backend | Runs a single backend node |
+| Scale to three | Runs three backend replicas |
+| Shared Redis | Provides cluster messaging and coordination |
+| Shared PostgreSQL | Provides persistent shared state |
 
 ---
 
 ## Contributing
 
-We welcome contributions from the community. However, to maintain the high stability standards of MeshDrop, we have strict guidelines.
+MeshDrop welcomes contributions while maintaining a structured development process.
 
 ### Reporting Bugs
 
-If you encounter an issue, **you must provide a complete reproduction path**. Vague reports like "it doesn't work" will be closed immediately without review.
+Bug reports should provide a complete reproduction path.
 
-**Required Format for Issues:**
-
-1. **Environment**: OS, Node Version, Browser.
-
-2. **Configuration**: Are you using Cluster Mode? Redis? Native Addons?
-
-3. **Steps to Reproduce**: A numbered list of exact actions taken.
-
-4. **Logs**: Paste the full error stack trace from the backend terminal and browser console.
+| Required Information | What to Include |
+|---|---|
+| **Environment** | Operating system, Node.js version, browser |
+| **Configuration** | Cluster mode, Redis, native addon settings |
+| **Steps to Reproduce** | Exact numbered actions |
+| **Logs** | Full backend stack trace and browser-console output |
 
 ### Feature Requests
 
-Have an idea to make MeshDrop even faster? Open a Pull Request! Please ensure your code follows the existing modular structure and includes proper typing.
+For feature requests, open a Pull Request and follow the project's existing modular structure and typing conventions.
 
 ---
 
-*Built with precision. Engineered for speed.*
+> **Built with precision. Engineered for speed.**

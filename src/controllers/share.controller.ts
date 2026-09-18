@@ -17,7 +17,8 @@ export const shareController = {
     if (customShareId) {
       const existing = await storageRepository.getShareSession(customShareId);
       if (existing) {
-        throw ErrorFactory.conflict("Share ID already exists");
+        res.status(409).json({ success: false, error: "Share ID already exists" });
+        return;
       }
       shareId = customShareId;
     } else {
@@ -69,15 +70,18 @@ export const shareController = {
     const shareSession = await storageRepository.getShareSession(shareId);
 
     if (!shareSession) {
-      throw ErrorFactory.notFound("Share session not found");
+      res.status(404).json({ success: false, error: "Share session not found" });
+      return;
     }
 
     if (shareSession.status === "inactive") {
-      throw ErrorFactory.badRequest("Share session is inactive");
+      res.status(400).json({ success: false, error: "Share session is inactive" });
+      return;
     }
 
     if (shareSession.clients.length >= 2) {
-      throw ErrorFactory.shareSessionFull(shareId);
+      res.status(409).json({ success: false, error: `Share session is full: ${shareId}` });
+      return;
     }
 
     shareSession.clients.push(clientId);
